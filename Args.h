@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
-#include <getopt.h>
+#include "getopt.h"
 
 #define USAGE_TXT							   \
     "usage: \n"                                \

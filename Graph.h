@@ -41,6 +41,7 @@ private:
     stack<vector<int>> stk_edges;
     stack<int> stk_CT;
     vector<vector<int>> ldses;
+    vector<vector<int>> lds_edge;
     vector<double> lds_rho;
     vector<int> lds_num;
     vector<int> deg;

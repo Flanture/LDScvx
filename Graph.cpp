@@ -2,8 +2,11 @@
 // Created by MA Chenhao on 29/11/2021.
 //
 #include "Graph.h"
+#include <ctime>
+#include <iostream>
+#include <unordered_map>
 
-#define DELTA 1e-5
+#define DELTA 1e-9
 
 Graph::Graph(FILE *file, int NT, int topk) {
     printf("Graph construction\n");
@@ -42,6 +45,42 @@ Graph::Graph(FILE *file, int NT, int topk) {
     this->topk = topk;
 }
 
+class SmallGraph {
+public:
+    std::unordered_map<int, vector<int>> adj; // 邻接表
+
+    void addEdge(int v, int w) {
+        adj[v].push_back(w);
+        adj[w].push_back(v); // 无向图，需要添加两条边
+    }
+
+    // 计算一个节点的聚类系数
+    double clusteringCoefficient(int v) {
+        if (adj[v].size() < 2) return 0.0; // 如果邻居少于2个，聚类系数为0
+
+        double possibleEdges = 0.0, existingEdges = 0.0;
+        for (int i = 0; i < adj[v].size(); ++i) {
+            for (int j = i + 1; j < adj[v].size(); ++j) {
+                possibleEdges++;
+                if (find(adj[adj[v][i]].begin(), adj[adj[v][i]].end(), adj[v][j]) != adj[adj[v][i]].end()) {
+                    existingEdges++;
+                }
+            }
+        }
+        return (2.0 * existingEdges) / (adj[v].size() * (adj[v].size() - 1));
+    }
+
+    // 计算平均聚类系数
+    double averageClusteringCoefficient() {
+        double sum = 0.0;
+        for (auto& p : adj) {
+            sum += clusteringCoefficient(p.first);
+        }
+        return sum / adj.size();
+    }
+};
+
+
 void Graph::frank_wolfe() {
     printf("#node %lu #edge %lu\n", slt_nodes.size(), slt_edges.size());
     if (CT == 0) {
@@ -63,15 +102,25 @@ void Graph::frank_wolfe() {
         double gamma_t = 2.0 / (t + 2);
         for (auto & e : slt_edges) {
 //            alpha[e] *= 1 - gamma_t;
+            double d;
             if (r[edges[e].first] < r[edges[e].second]) {
-                r[edges[e].first] += gamma_t * (1 - alpha[e]);
+                /*r[edges[e].first] += gamma_t * (1 - alpha[e]);
                 r[edges[e].second] -= gamma_t * (1 - alpha[e]);
-                alpha[e] = alpha[e] * (1 - gamma_t) + gamma_t;
+                alpha[e] = alpha[e] * (1 - gamma_t) + gamma_t;*/
+                d = min((r[edges[e].second] - r[edges[e].first]) / 2, 1 - alpha[e]);
+                r[edges[e].first] += d;
+                r[edges[e].second] -= d;
+                alpha[e] += d;
+
             }
             else if (r[edges[e].first] > r[edges[e].second]) {
-                r[edges[e].first] -= gamma_t * alpha[e];
+               /* r[edges[e].first] -= gamma_t * alpha[e];
                 r[edges[e].second] += gamma_t * alpha[e];
-                alpha[e] = alpha[e] * (1 - gamma_t);
+                alpha[e] = alpha[e] * (1 - gamma_t);*/
+                d = min((r[edges[e].first] - r[edges[e].second]) / 2,  alpha[e]);
+                r[edges[e].first] -= d;
+                r[edges[e].second] += d;
+                alpha[e] -= d;
             }
         }
 //        for (auto & node : slt_nodes) {
@@ -82,10 +131,10 @@ void Graph::frank_wolfe() {
 //            r[edges[e].second] += 1 - alpha[e];
 //        }
     }
-//    for (int i = 0; i < n; i++) {
-//        printf("%.4f ", r[i]);
-//    }
-//    printf("\n");
+    /*for (int i = 0; i < n; i++) {
+        printf("%.4f ", r[i]);
+    }
+    printf("\n");*/
 }
 
 /* Pool Adjacent Violators Algorithm. Try to decompose the graph into Stable Groups.
@@ -117,7 +166,7 @@ void Graph::pava() {
         nsg += 1;
         val[nsg] = ne[i];
         nag[nsg] = 1;
-        while ((nsg > 0) && (val[nsg] > val[nsg - 1] - 1e-5)) {
+        while ((nsg > 0) && (val[nsg] > val[nsg - 1] - 1e-9)) {
             val[nsg - 1] = (nag[nsg] * val[nsg] + nag[nsg - 1] * val[nsg - 1])/(nag[nsg]+nag[nsg - 1]);
             nag[nsg - 1] += nag[nsg];
             nsg--;
@@ -589,7 +638,7 @@ void Graph::pruning() {
             deg[slt_nodes[j]] = 0;
             rho_u[slt_nodes[j]] = min(rho_u[slt_nodes[j]], max_r[i]);
             rho_l[slt_nodes[j]] = max(rho_l[slt_nodes[j]], min_r[i]);
-            if (rho_u[slt_nodes[j]] < rho_l[slt_nodes[j]]) {
+            if (rho_u[slt_nodes[j]] < rho_l[slt_nodes[j]] - DELTA) {
                 selected[slt_nodes[j]] = false;
             }
             if (active[slt_nodes[j]]) {
@@ -613,7 +662,7 @@ void Graph::pruning() {
     for (auto u : slt_nodes) {
         if (selected[u]) {
             for (auto v : adj[u]) {
-                if (rho_l[v] > rho_u[u]) {
+                if (rho_l[v] > rho_u[u] + DELTA) {
                     selected[u] = false;
                 }
             }
@@ -631,7 +680,7 @@ void Graph::pruning() {
 
     queue<int> q;
     for (auto u : slt_nodes) {
-        if (selected[u] && deg[u] < rho_l[u]) {
+        if (selected[u] && deg[u] < rho_l[u] - DELTA) {
             selected[u] = false;
             q.push(u);
         }
@@ -641,7 +690,7 @@ void Graph::pruning() {
         int u = q.front(); q.pop();
         for (auto v : adj[u]) {
             if (selected[v]) {
-                if (--deg[v] < rho_l[v]) {
+                if (--deg[v] < rho_l[v] - DELTA) {
                     selected[v] = false;
                     q.push(v);
                 }
@@ -685,6 +734,7 @@ void Graph::pruning() {
         stk_nodes.push(t_nodes);
         slt_nodes.resize(n_nodes);
 
+        //这个判断条件是什么?
         if (sg[t_nodes[0]] > sg[edges[slt_edges.back()].first]) {
             stk_nodes.pop();
             continue;
@@ -718,6 +768,9 @@ void Graph::findLDS() {
             slt_edges = stk_edges.top(); stk_edges.pop();
             CT = stk_CT.top(); stk_CT.pop();
         }
+        vector<int> tmp_nodes = { 5,6,7,8 };
+        double g = 1.5;
+        cout << verify_LDS(tmp_nodes, g);
         frank_wolfe();
         clock_t t_fw = clock();
         fw_time += double(t_fw - start) / CLOCKS_PER_SEC;
@@ -734,7 +787,7 @@ void Graph::findLDS() {
         clock_t t_prune = clock();
         pr_time += double(t_prune - t_check_sg) / CLOCKS_PER_SEC;
         printf("pruning time: %.4f\n", double(t_prune - t_check_sg) / CLOCKS_PER_SEC);
-        if (!slt_nodes.empty() && check_first) {
+        if (!slt_nodes.empty() ) {
             double g = (double) slt_edges.size() / slt_nodes.size();
             vector<pair<int, int>> tmp_edges;
             for (auto e : slt_edges) {
@@ -752,6 +805,8 @@ void Graph::findLDS() {
                     printf("ldses candidate: #nodes %lu #edges %d\n", tmp_nodes.size(), pr.second - cur_e);
                     if (verify_LDS(tmp_nodes, g)) {
                         ldses.push_back(tmp_nodes);
+                        vector<int> tmp_edges(slt_edges.begin() + cur_e, slt_edges.begin() + pr.second);
+                        lds_edge.push_back(tmp_edges);
                         lds_rho.push_back(g);
                         if (ldses.size() >= topk)
                             break;
@@ -770,6 +825,25 @@ void Graph::findLDS() {
         mf_time += double(t_verify_LDS - t_prune) / CLOCKS_PER_SEC;
         printf("verifyLDS time: %.4f\n", double(t_verify_LDS - t_prune) / CLOCKS_PER_SEC);
     }
+    for (int j = 0; j < ldses.size(); j++) {
+        auto lds = ldses[j];
+        for (int i = 0; i < lds.size(); i++) {
+            cout << lds[i] << " ";
+        }
+        cout << "density: " << lds_rho[j];
+        cout << endl;
+    }
+
+    SmallGraph sg;
+    // 在这里添加图的边
+    // 例如：g.addEdge(0, 1); g.addEdge(1, 2); ...
+    for (int i = 0; i < ldses.size(); i++) {
+        for (int j = 0; j < lds_edge[i].size(); j++) {
+            sg.addEdge(edges[lds_edge[i][j]].first, edges[lds_edge[i][j]].second);
+        }
+    }
+    double avgClusteringCoeff = sg.averageClusteringCoefficient();
+    cout << "Average Clustering Coefficient: " << avgClusteringCoeff << endl;
 
     printf("fw %.4f sec, sg %.4f sec, pr %.4f sec, mf %.4f sec\n", fw_time, sg_time, pr_time, mf_time);
 
@@ -842,7 +916,7 @@ void Graph::prune_by_core() {
         int u = q.front(); q.pop();
         vtx.push_back(u);
         for (auto v : adj[u]) {
-            if (selected[v] && pos[u] > pos[v]) {
+            if (selected[v] && deg[u] > deg[v]) {
                 --deg[v];
                 if (tmp_rho_l[v] > deg[v] + DELTA) {
                     selected[v] = false;
@@ -892,7 +966,7 @@ void Graph::prune_by_core() {
 bool Graph::verify_LDS(vector<int> & nodes, double g) {
     for (auto u : nodes) {
         for (auto v : adj[u]) {
-            if (rho_l[v] > g) {
+            if (rho_l[v] - DELTA > g) {
                 printf("validate failed\n");
                 return false;
             }
@@ -917,7 +991,7 @@ bool Graph::verify_LDS(vector<int> & nodes, double g) {
             for (auto w : adj[v]) {
 //                if (slt_nodes.size() == 13 && slt_edges.size() == 68) printf("%d %d %.4f %.4f\n", v, w, rho_gu[w], rho_l[w]);
                 if (fn_baseline) {
-                    if (rho_gu[w] >= g) {
+                    if (rho_gu[w] - DELTA >= g) {
                         if (veri_vtx[w] != num_verify) {
                             if (lds_num[w] != -1 && lds_num[w] < lds_num[u]) {
                                 flag = false;
@@ -929,14 +1003,14 @@ bool Graph::verify_LDS(vector<int> & nodes, double g) {
                             tmp_edges.emplace_back(v, w);
                     }
                 } else {
-                    if (rho_gu[w] >= g) {
+                    if (rho_gu[w] - DELTA >= g) {
                         if (veri_vtx[w] != num_verify) {
                             if (lds_num[w] != -1 && lds_num[w] < lds_num[u]) {
                                 flag = false;
                             }
 //                        veri_vtx[w] = num_verify;
 //                        q.push(w);
-                            if (rho_l[w] <= g) {
+                            if (rho_l[w] + DELTA <= g) {
                                 veri_vtx[w] = num_verify;
                                 q.push(w);
                             } else {
@@ -944,7 +1018,7 @@ bool Graph::verify_LDS(vector<int> & nodes, double g) {
                                 tmp_edges.emplace_back(v, v);
                             }
                         }
-                        if (v < w && rho_l[w] <= g)
+                        if (v < w && rho_l[w] + DELTA <= g)
                             tmp_edges.emplace_back(v, w);
                     }
                 }
@@ -991,6 +1065,7 @@ bool Graph::verify_LDS(vector<int> & nodes, double g) {
     }
     return false;
 }
+
 
 void Graph::output(char *ds_address) {
     printf("num of LDS %lu\n", ldses.size());
